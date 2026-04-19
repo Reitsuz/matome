@@ -9,7 +9,8 @@ class PostController extends Controller
     public function index(Request $request)
     {
         $cacheDir = storage_path('app/news_cache');
-        if (!file_exists($cacheDir)) {
+
+        if (!is_dir($cacheDir)) {
             mkdir($cacheDir, 0777, true);
         }
 
@@ -31,12 +32,16 @@ class PostController extends Controller
             $files = glob($cacheDir . "/$year-*.json") ?: [];
 
             foreach ($files as $file) {
-                $data = json_decode(file_get_contents($file), true);
+
+                $json = file_get_contents($file);
+                $data = json_decode($json, true);
 
                 if (!is_array($data)) continue;
 
                 foreach ($data as $p) {
-                    $posts[] = $p;
+                    if (is_array($p)) {
+                        $posts[] = $p;
+                    }
                 }
             }
 
@@ -58,10 +63,7 @@ class PostController extends Controller
             if (file_exists($cacheFile)) {
 
                 $posts = json_decode(file_get_contents($cacheFile), true);
-
-                if (!is_array($posts)) {
-                    $posts = [];
-                }
+                $posts = is_array($posts) ? $posts : [];
 
             } else {
 
@@ -82,37 +84,41 @@ class PostController extends Controller
                     $rss = @simplexml_load_string($xml);
                     if (!$rss) continue;
 
-                    // RSS (channel)
-                    if (isset($rss->channel->item)) {
+                    // RSS
+                    if (!empty($rss->channel->item)) {
 
                         foreach ($rss->channel->item as $item) {
 
-                            $link = (string)$item->link;
+                            $link = (string)($item->link ?? '');
+
+                            if (!$link) continue;
 
                             $items[] = [
                                 'title' => (string)$item->title,
                                 'link'  => $link,
                                 'desc'  => strip_tags((string)$item->description),
                                 'img'   => null,
-                                'site'  => parse_url($link, PHP_URL_HOST),
+                                'site'  => parse_url($link, PHP_URL_HOST) ?? '',
                                 'date'  => $date,
                             ];
                         }
                     }
 
                     // Atom
-                    if (isset($rss->entry)) {
+                    if (!empty($rss->entry)) {
 
                         foreach ($rss->entry as $item) {
 
-                            $link = (string)$item->link['href'];
+                            $link = (string)($item->link['href'] ?? '');
+
+                            if (!$link) continue;
 
                             $items[] = [
                                 'title' => (string)$item->title,
                                 'link'  => $link,
                                 'desc'  => strip_tags((string)$item->summary),
                                 'img'   => null,
-                                'site'  => parse_url($link, PHP_URL_HOST),
+                                'site'  => parse_url($link, PHP_URL_HOST) ?? '',
                                 'date'  => $date,
                             ];
                         }
@@ -122,7 +128,10 @@ class PostController extends Controller
                 shuffle($items);
                 $posts = array_slice($items, 0, 10);
 
-                file_put_contents($cacheFile, json_encode($posts, JSON_UNESCAPED_UNICODE));
+                @file_put_contents(
+                    $cacheFile,
+                    json_encode($posts, JSON_UNESCAPED_UNICODE)
+                );
             }
 
             $title = $isToday ? "今日のニュース" : $date . " のニュース";
