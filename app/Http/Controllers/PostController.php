@@ -33,12 +33,9 @@ class PostController extends Controller
 
             foreach ($files as $file) {
 
-                if (!file_exists($file)) continue;
-
                 $json = file_get_contents($file);
-                if (!$json) continue;
-
                 $data = json_decode($json, true);
+
                 if (!is_array($data)) continue;
 
                 foreach ($data as $p) {
@@ -47,6 +44,8 @@ class PostController extends Controller
                     }
                 }
             }
+
+            $posts = array_values(array_filter($posts, fn($p) => is_array($p)));
 
             shuffle($posts);
             $posts = array_slice($posts, 0, 30);
@@ -61,26 +60,96 @@ class PostController extends Controller
         */
         else {
 
-            $cacheFile = $cacheDir . "/" . $date . ".json";
+            $cacheFile = "$cacheDir/$date.json";
 
             if (file_exists($cacheFile)) {
 
-                $json = file_get_contents($cacheFile);
-
-                $posts = json_decode($json, true);
+                $posts = json_decode(file_get_contents($cacheFile), true);
 
                 if (!is_array($posts)) {
                     $posts = [];
                 }
 
+                $posts = array_values(array_filter($posts, fn($p) => is_array($p)));
+
             } else {
 
-                /**
-                 * RSSは完全に外出し前提（ここでは扱わない）
-                 * Renderで落ちる原因になるため削除
-                 */
+                $feeds = [
+                    "https://news.yahoo.co.jp/rss/topics/top-picks.xml",
+                    "https://gigazine.net/news/rss_2.0/",
+                    "https://www.itmedia.co.jp/rss/2.0/news_bursts.xml",
+                    "https://www.gizmodo.jp/index.xml"
+                ];
 
-                $posts = [];
+                $items = [];
+
+                foreach ($feeds as $feed) {
+
+                    $xml = @file_get_contents($feed);
+                    if (!$xml) continue;
+
+                    libxml_use_internal_errors(true);
+                    $rss = simplexml_load_string($xml);
+                    libxml_clear_errors();
+
+                    if (!$rss instanceof \SimpleXMLElement) continue;
+
+                    /*
+                    |-------------------------
+                    | RSS形式
+                    |-------------------------
+                    */
+                    if (!empty($rss->channel->item)) {
+
+                        foreach ($rss->channel->item as $item) {
+
+                            $link = (string)($item->link ?? '');
+                            if (!$link) continue;
+
+                            $items[] = [
+                                'title' => (string)$item->title,
+                                'link'  => $link,
+                                'desc'  => strip_tags((string)$item->description),
+                                'img'   => null,
+                                'site'  => parse_url($link, PHP_URL_HOST) ?? '',
+                                'date'  => $date,
+                            ];
+                        }
+                    }
+
+                    /*
+                    |-------------------------
+                    | Atom形式
+                    |-------------------------
+                    */
+                    if (!empty($rss->entry)) {
+
+                        foreach ($rss->entry as $item) {
+
+                            $link = (string)($item->link['href'] ?? '');
+                            if (!$link) continue;
+
+                            $items[] = [
+                                'title' => (string)$item->title,
+                                'link'  => $link,
+                                'desc'  => strip_tags((string)$item->summary),
+                                'img'   => null,
+                                'site'  => parse_url($link, PHP_URL_HOST) ?? '',
+                                'date'  => $date,
+                            ];
+                        }
+                    }
+                }
+
+                $items = array_values(array_filter($items, fn($i) => is_array($i)));
+
+                shuffle($items);
+                $posts = array_slice($items, 0, 10);
+
+                @file_put_contents(
+                    $cacheFile,
+                    json_encode($posts, JSON_UNESCAPED_UNICODE)
+                );
             }
 
             $title = $isToday ? "今日のニュース" : $date . " のニュース";
