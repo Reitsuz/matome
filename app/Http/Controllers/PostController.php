@@ -45,6 +45,8 @@ class PostController extends Controller
                 }
             }
 
+            $posts = array_values(array_filter($posts, fn($p) => is_array($p)));
+
             shuffle($posts);
             $posts = array_slice($posts, 0, 30);
 
@@ -63,7 +65,12 @@ class PostController extends Controller
             if (file_exists($cacheFile)) {
 
                 $posts = json_decode(file_get_contents($cacheFile), true);
-                $posts = is_array($posts) ? $posts : [];
+
+                if (!is_array($posts)) {
+                    $posts = [];
+                }
+
+                $posts = array_values(array_filter($posts, fn($p) => is_array($p)));
 
             } else {
 
@@ -81,16 +88,22 @@ class PostController extends Controller
                     $xml = @file_get_contents($feed);
                     if (!$xml) continue;
 
-                    $rss = @simplexml_load_string($xml);
-                    if (!$rss) continue;
+                    libxml_use_internal_errors(true);
+                    $rss = simplexml_load_string($xml);
+                    libxml_clear_errors();
 
-                    // RSS
+                    if (!$rss instanceof \SimpleXMLElement) continue;
+
+                    /*
+                    |-------------------------
+                    | RSS形式
+                    |-------------------------
+                    */
                     if (!empty($rss->channel->item)) {
 
                         foreach ($rss->channel->item as $item) {
 
                             $link = (string)($item->link ?? '');
-
                             if (!$link) continue;
 
                             $items[] = [
@@ -104,13 +117,16 @@ class PostController extends Controller
                         }
                     }
 
-                    // Atom
+                    /*
+                    |-------------------------
+                    | Atom形式
+                    |-------------------------
+                    */
                     if (!empty($rss->entry)) {
 
                         foreach ($rss->entry as $item) {
 
                             $link = (string)($item->link['href'] ?? '');
-
                             if (!$link) continue;
 
                             $items[] = [
@@ -124,6 +140,8 @@ class PostController extends Controller
                         }
                     }
                 }
+
+                $items = array_values(array_filter($items, fn($i) => is_array($i)));
 
                 shuffle($items);
                 $posts = array_slice($items, 0, 10);
